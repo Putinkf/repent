@@ -63,7 +63,6 @@ FORBIDDEN_WORDS = [
     "пидр",
     "пидорас",
     "мудак",
-    "мудак",
     "мудачье",
     "хер",
     "хрен",
@@ -203,6 +202,7 @@ class HolyFlashApp:
                     # Always validate the current token before flushing.
                     if snippet:
                         self._check_text_forbidden(snippet)
+                    
                     self._flush_keyboard_buffer()
                     return
                 else:
