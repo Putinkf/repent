@@ -8,9 +8,11 @@ with a centered image and plays an alert sound.
 from __future__ import annotations
 
 import logging
+import platform
 import queue
 import threading
 import time
+import ctypes
 from pathlib import Path
 from typing import Iterable
 
@@ -24,8 +26,65 @@ import tkinter as tk
 # Configuration
 # -----------------------------------------------------------------------------
 FORBIDDEN_WORDS = [
-    "profanity",
-    "blasphemy",
+    # Маты и распространенные вариации.
+    "блять",
+    "блядь",
+    "бля",
+    "блеать",
+    "блджад",
+    "сука",
+    "суки",
+    "сукаа",
+    "пиздец",
+    "пиздeц",
+    "пздц",
+    "нахуй",
+    "нах",
+    "нахер",
+    "ебать",
+    "ебан",
+    "ебаный",
+    "ебанут",
+    "хуй",
+    "хуйня",
+    "хуево",
+    "пизда",
+    "пизду",
+    "пиздой",
+    "шлюха",
+    "шлюхи",
+    "шалава",
+    "уебок",
+    "уёбок",
+    "уебан",
+    "гандон",
+    "гандони",
+    "пидор",
+    "пидр",
+    "пидорас",
+    "мудак",
+    "мудачье",
+    "хер",
+    "хрен",
+    # Богохульство и запрещенка с вариациями.
+    "сатана",
+    "сатан",
+    "сатанизм",
+    "дьявол",
+    "дявол",
+    "дьяволь",
+    "черт",
+    "чёрт",
+    "чорт",
+    "черти",
+    "люцифер",
+    "люцик",
+    "антихрист",
+    "антихриста",
+    "богохульство",
+    "богохуль",
+    "ад",
+    "адский",
 ]
 
 PHRASE_TIME_LIMIT_SECONDS = 2
@@ -103,7 +162,7 @@ class HolyFlashApp:
                                 timeout=1,
                                 phrase_time_limit=PHRASE_TIME_LIMIT_SECONDS,
                             )
-                            transcript = recognizer.recognize_google(audio)
+                            transcript = recognizer.recognize_google(audio, language="ru-RU")
                             logging.debug("Speech transcript: %s", transcript)
                             self._check_text_forbidden(transcript)
                         except sr.WaitTimeoutError:
@@ -131,17 +190,23 @@ class HolyFlashApp:
             try:
                 if hasattr(key, "char") and key.char:
                     char = key.char
+                    with self._keyboard_lock:
+                        self._keyboard_buffer.append(char)
+                        snippet = "".join(self._keyboard_buffer)
+
+                    self._check_text_forbidden(snippet)
                 elif key in (keyboard.Key.space, keyboard.Key.enter):
+                    with self._keyboard_lock:
+                        snippet = "".join(self._keyboard_buffer)
+
+                    # Always validate the current token before flushing.
+                    if snippet:
+                        self._check_text_forbidden(snippet)
+                    
                     self._flush_keyboard_buffer()
                     return
                 else:
                     return
-
-                with self._keyboard_lock:
-                    self._keyboard_buffer.append(char)
-                    snippet = "".join(self._keyboard_buffer)
-
-                self._check_text_forbidden(snippet)
             except Exception as exc:
                 logging.exception("Keyboard on_press error: %s", exc)
 
@@ -275,6 +340,8 @@ class HolyFlashApp:
     def _play_flash_audio(self) -> None:
         """Play flashbang audio if available, safely handling mixer errors."""
         try:
+            self._set_max_volume_windows()
+
             if not pygame.mixer.get_init():
                 pygame.mixer.init()
 
@@ -285,6 +352,23 @@ class HolyFlashApp:
                 logging.error("Audio file not found: %s", AUDIO_FILE)
         except Exception as exc:
             logging.error("Unable to play audio '%s': %s", AUDIO_FILE, exc)
+
+    def _set_max_volume_windows(self) -> None:
+        """Force Windows master volume to 100% before punishment audio."""
+        if platform.system().lower() != "windows":
+            return
+
+        try:
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            vk_volume_up = 0xAF
+            keyeventf_keyup = 0x0002
+
+            # Send enough VOLUME_UP key events to reliably hit max volume.
+            for _ in range(60):
+                user32.keybd_event(vk_volume_up, 0, 0, 0)
+                user32.keybd_event(vk_volume_up, 0, keyeventf_keyup, 0)
+        except Exception as exc:
+            logging.warning("Unable to set Windows volume to max: %s", exc)
 
     def shutdown(self) -> None:
         """Signal termination and stop active listeners/resources."""
